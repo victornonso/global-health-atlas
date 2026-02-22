@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Global Health Atlas · 2000–2015</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=JetBrains+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <!-- D3 v7 + TopoJSON -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ─── Loading screen ──────────────────────────────────── -->
+<div id="loading-screen">
+  <div class="loading-title">Global Health Atlas</div>
+  <div class="loading-bar-track"><div class="loading-bar-fill"></div></div>
+  <div class="loading-sub">Loading dataset…</div>
+</div>
+
+<!-- ─── Tooltip ─────────────────────────────────────────── -->
+<div id="tooltip"></div>
+
+<!-- ─── Navigation ──────────────────────────────────────── -->
+<nav id="nav">
+  <div class="nav-brand">Global Health Atlas <span>· 2000–2015</span></div>
+  <div class="nav-pages">
+    <button class="nav-btn active"  onclick="showPage(1)">01 · Overview</button>
+    <button class="nav-btn"         onclick="showPage(2)">02 · Mortality</button>
+    <button class="nav-btn"         onclick="showPage(3)">03 · Immunization</button>
+    <button class="nav-btn"         onclick="showPage(4)">04 · Economy</button>
+    <button class="nav-btn"         onclick="showPage(5)">05 · Insights</button>
+  </div>
+  <button id="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark theme">🌙</button>
+</nav>
+
+<!-- ════════════════════════════════════════════════════════
+     PAGE 1 — GLOBAL OVERVIEW (Member A)
+     ════════════════════════════════════════════════════════ -->
+<div class="page active" id="page-1">
+  <div class="page-header">
+    <div class="page-number">Chapter 01 · Member A</div>
+    <h1 class="page-title">The World in Years</h1>
+    <p class="page-subtitle">
+      How long do people live across the globe? Explore the geographic
+      distribution of life expectancy from 2000 to 2015, revealing stark
+      divides between regions.
+    </p>
+  </div>
+
+  <!-- Stat cards -->
+  <div class="stat-cards" id="p1-stats"></div>
+
+  <!-- Controls: year slider + region filter -->
+  <div class="controls">
+    <span class="ctrl-label">Year</span>
+    <input type="range" id="p1-year-slider" min="2000" max="2015" value="2015" step="1">
+    <span class="year-display" id="p1-year-display">2015</span>
+    <div class="ctrl-divider"></div>
+    <span class="ctrl-label">Region</span>
+    <select id="p1-region-select"></select>
+  </div>
+
+  <!-- Map -->
+  <div class="chart-container" id="p1-map-wrap">
+    <svg id="p1-map-svg" style="width:100%;height:500px;display:block;"></svg>
+  </div>
+
+  <!-- Colorbar -->
+  <div class="colorbar-wrap">
+    <span class="colorbar-end">40</span>
+    <svg id="p1-colorbar" style="flex:1;height:14px;"></svg>
+    <span class="colorbar-end">85</span>
+    <span class="colorbar-title">Life Expectancy (years)</span>
+  </div>
+
+  <div class="page-footer">
+    <span>Source: WHO Global Health Observatory · 179 countries · 2000–2015</span>
+    <span class="page-footer-credit">Visualization by Member A</span>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     PAGE 2 — MORTALITY TRENDS (Member B)
+     ════════════════════════════════════════════════════════ -->
+<div class="page" id="page-2">
+  <div class="page-header">
+    <div class="page-number">Chapter 02 · Member B</div>
+    <h1 class="page-title">The Mortality Decline</h1>
+    <p class="page-subtitle">
+      Across regions, infant and child mortality fell dramatically from 2000 to 2015.
+      Hover over any chart to see the value at a given year and the percentage change
+      since 2000.
+    </p>
+  </div>
+
+  <div class="controls">
+    <span class="ctrl-label">Region</span>
+    <select id="p2-region">
+      <option value="All">All Regions</option>
+    </select>
+  </div>
+
+  <div class="small-multiples" id="p2-charts"></div>
+
+  <div class="page-footer">
+    <span>Rates are regional averages · hover for year-on-year values</span>
+    <span class="page-footer-credit">Visualization by Member B</span>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     PAGE 3 — IMMUNIZATION (Member C)
+     ════════════════════════════════════════════════════════ -->
+<div class="page" id="page-3">
+  <div class="page-header">
+    <div class="page-number">Chapter 03 · Member C</div>
+    <h1 class="page-title">The Vaccine Effect</h1>
+    <p class="page-subtitle">
+      Immunization coverage is one of the most powerful predictors of child survival.
+      Each bubble is a country. Click a region in the legend to highlight it.
+    </p>
+  </div>
+
+  <div class="controls">
+    <span class="ctrl-label">Vaccine</span>
+    <select id="p3-vaccine">
+      <option value="Hepatitis_B">Hepatitis B</option>
+      <option value="Polio">Polio</option>
+      <option value="Diphtheria">Diphtheria</option>
+      <option value="Measles">Measles</option>
+    </select>
+    <div class="ctrl-divider"></div>
+    <span class="ctrl-label">Year</span>
+    <input type="range" id="p3-year-slider" min="2000" max="2015" value="2015" step="1">
+    <span class="year-display" id="p3-year-display">2015</span>
+  </div>
+
+  <div class="chart-container">
+    <svg id="p3-svg" style="width:100%;height:500px;display:block;"></svg>
+  </div>
+
+  <div class="legend" id="p3-legend"></div>
+
+  <div class="page-footer">
+    <span>Bubble size = population · Click legend to highlight region</span>
+    <span class="page-footer-credit">Visualization by Member C</span>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     PAGE 4 — ECONOMY (Member D)
+     ════════════════════════════════════════════════════════ -->
+<div class="page" id="page-4">
+  <div class="page-header">
+    <div class="page-number">Chapter 04 · Member D</div>
+    <h1 class="page-title">Wealth, Education &amp; Longevity</h1>
+    <p class="page-subtitle">
+      Press <strong>▶ Play</strong> to animate the world from 2000 to 2015 and watch
+      how economic growth and education reshape life expectancy. Toggle the X axis
+      between GDP and schooling.
+    </p>
+  </div>
+
+  <div class="controls">
+    <span class="ctrl-label">X Axis</span>
+    <div class="toggle-group">
+      <button class="toggle-btn active" id="p4-toggle-gdp"    onclick="p4SetXMode('gdp')">GDP per Capita</button>
+      <button class="toggle-btn"        id="p4-toggle-school" onclick="p4SetXMode('school')">Schooling</button>
+    </div>
+    <div class="ctrl-divider"></div>
+    <span class="ctrl-label">Year</span>
+    <input type="range" id="p4-year-slider" min="2000" max="2015" value="2000" step="1">
+    <span class="year-display" id="p4-year-display">2000</span>
+    <button class="btn" id="p4-play-btn" onclick="p4TogglePlay()">▶ Play</button>
+  </div>
+
+  <div class="chart-container">
+    <svg id="p4-svg" style="width:100%;height:520px;display:block;"></svg>
+  </div>
+
+  <div class="legend" id="p4-legend"></div>
+
+  <div class="page-footer">
+    <span>Bubble size = population · Dashed line = linear regression</span>
+    <span class="page-footer-credit">Visualization by Member D</span>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     PAGE 5 — INSIGHTS (Member E)
+     ════════════════════════════════════════════════════════ -->
+<div class="page" id="page-5">
+  <div class="page-header">
+    <div class="page-number">Chapter 05 · Member E</div>
+    <h1 class="page-title">Predictors of Life</h1>
+    <p class="page-subtitle">
+      Which factors most strongly predict life expectancy? This Pearson correlation
+      matrix reveals statistical relationships across all indicators, averaged per
+      country over the full 2000–2015 period. Hover any cell for the exact value.
+    </p>
+  </div>
+
+  <div class="chart-container" style="padding:24px 28px;">
+    <svg id="p5-svg" style="width:100%;display:block;"></svg>
+  </div>
+
+  <div class="insights-box">
+    <h3>Key Findings</h3>
+    <p id="p5-findings"></p>
+  </div>
+
+  <div class="page-footer">
+    <span>Pearson r · per-country averages across 2000–2015 · N = 179 countries</span>
+    <span class="page-footer-credit">Visualization by Member E</span>
+  </div>
+</div>
+
+<!-- ─── Scripts (order matters) ─────────────────────────── -->
+<script src="js/dataLoader.js"></script>
+<script src="js/page1_map.js"></script>
+<script src="js/page2_trends.js"></script>
+<script src="js/page3_immunization.js"></script>
+<script src="js/page4_economy.js"></script>
+<script src="js/page5_correlation.js"></script>
+<script src="js/main.js"></script>
+
+</body>
+</html>
