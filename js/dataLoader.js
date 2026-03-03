@@ -1,17 +1,32 @@
 /**
  * dataLoader.js
- * ─────────────────────────────────────────────────────────
- * Responsible for: loading the external CSV, parsing all
- * numeric fields, and exposing shared constants (region
- * colors, region short-names) used by every other module.
  *
- * Team: shared / architecture owner
- * ─────────────────────────────────────────────────────────
+ * Loads health_data.csv, parses all numeric fields, and exposes
+ * shared constants and utility functions used across every page module.
+ *
+ * Globals set here:
+ *   window.REGIONS        — ordered region name list
+ *   window.REGION_COLORS  — region → hex color
+ *   window.REGION_SHORT   — region → abbreviated display string
+ *   window.YEARS          — [2000…2015]
+ *   window.allData        — parsed CSV row array (set after loadData resolves)
+ *
+ * Utility functions:
+ *   window.loadData(path)          — fetch + parse CSV, returns Promise
+ *   window.getYearData(year)       — filter allData to a single year
+ *   window.fmt(v, decimals)        — format numeric value, 'N/A' on bad input
+ *   window.fmtK(v)                 — format USD value with 'k' suffix
+ *   window.showTooltip(html, evt)  — show shared tooltip DOM element
+ *   window.moveTooltip(evt)        — reposition tooltip to cursor
+ *   window.hideTooltip()           — hide tooltip
+ *   window.buildRegionLegend(id)   — inject colored dot legend into container
+ *   window.pearson(xs, ys)         — Pearson correlation coefficient
+ *   window.linearRegression(xs,ys) — OLS slope + intercept
  */
 
 "use strict";
 
-/* ── Shared constants ──────────────────────────────────── */
+/* ── Shared constants ─────────────────────────────────────────────────── */
 
 window.REGIONS = [
   "Africa",
@@ -49,71 +64,76 @@ window.REGION_SHORT = {
   "South America":                 "S. America",
 };
 
-window.YEARS = d3.range(2000, 2016); // [2000 … 2015]
+window.YEARS = d3.range(2000, 2016);
 
-/* ── Row parser ─────────────────────────────────────────── */
+/* ── Row parser ───────────────────────────────────────────────────────── */
+
+/** Coerce all numeric columns; default missing values to 0. */
 function parseRow(d) {
   return {
-    Country:                   d.Country,
-    Status:                    d.Status,
-    Region:                    d.Region,
-    Year:                      +d.Year,
-    Infant_deaths:             +d.Infant_deaths             || 0,
-    Under_five_deaths:         +d.Under_five_deaths         || 0,
-    Adult_mortality:           +d.Adult_mortality           || 0,
-    Alcohol_consumption:       +d.Alcohol_consumption       || 0,
-    Hepatitis_B:               +d.Hepatitis_B               || 0,
-    Measles:                   +d.Measles                   || 0,
-    BMI:                       +d.BMI                       || 0,
-    Polio:                     +d.Polio                     || 0,
-    Diphtheria:                +d.Diphtheria                || 0,
-    Incidents_HIV:             +d.Incidents_HIV             || 0,
-    GDP_per_capita:            +d.GDP_per_capita            || 0,
-    Population_mln:            +d.Population_mln            || 0,
+    Country:                     d.Country,
+    Status:                      d.Status,
+    Region:                      d.Region,
+    Year:                        +d.Year,
+    Infant_deaths:               +d.Infant_deaths               || 0,
+    Under_five_deaths:           +d.Under_five_deaths           || 0,
+    Adult_mortality:             +d.Adult_mortality             || 0,
+    Alcohol_consumption:         +d.Alcohol_consumption         || 0,
+    Hepatitis_B:                 +d.Hepatitis_B                 || 0,
+    Measles:                     +d.Measles                     || 0,
+    BMI:                         +d.BMI                         || 0,
+    Polio:                       +d.Polio                       || 0,
+    Diphtheria:                  +d.Diphtheria                  || 0,
+    Incidents_HIV:               +d.Incidents_HIV               || 0,
+    GDP_per_capita:              +d.GDP_per_capita              || 0,
+    Population_mln:              +d.Population_mln              || 0,
     Thinness_ten_nineteen_years: +d.Thinness_ten_nineteen_years || 0,
-    Thinness_five_nine_years:  +d.Thinness_five_nine_years  || 0,
-    Schooling:                 +d.Schooling                 || 0,
-    Economy_status_Developed:  +d.Economy_status_Developed,
-    Economy_status_Developing: +d.Economy_status_Developing,
-    Life_expectancy:           +d.Life_expectancy           || 0,
+    Thinness_five_nine_years:    +d.Thinness_five_nine_years    || 0,
+    Schooling:                   +d.Schooling                   || 0,
+    /* Binary flags — keep as 0/1 integers, not booleans */
+    Economy_status_Developed:    +d.Economy_status_Developed,
+    Economy_status_Developing:   +d.Economy_status_Developing,
+    Life_expectancy:             +d.Life_expectancy             || 0,
   };
 }
 
-/* ── Main loader ─────────────────────────────────────────── */
+/* ── Public loader ────────────────────────────────────────────────────── */
+
 /**
- * loadData(csvPath)
- * Fetches and parses the CSV. Returns a Promise<Array> of
- * parsed row objects. Also stores result in window.allData.
+ * Fetches and parses the CSV at csvPath.
+ * Stores result in window.allData and returns it via Promise.
  */
 window.loadData = function loadData(csvPath = "data/health_data.csv") {
-  return d3.csv(csvPath, parseRow).then((data) => {
+  return d3.csv(csvPath, parseRow).then(function (data) {
     window.allData = data;
-    console.info(`[dataLoader] Loaded ${data.length} rows from ${csvPath}`);
     return data;
   });
 };
 
-/* ── Utility helpers (used across pages) ─────────────────── */
+/* ── Data helpers ─────────────────────────────────────────────────────── */
 
-/** Filter allData to a single year */
+/** Returns all rows matching the given year. */
 window.getYearData = function (year) {
-  return window.allData.filter((d) => d.Year === year);
+  return window.allData.filter(function (d) { return d.Year === year; });
 };
 
-/** Format a number to fixed decimals, returns 'N/A' for bad values */
-window.fmt = function (v, decimals = 1) {
+/** Format a number to fixed decimal places; returns 'N/A' for null / NaN. */
+window.fmt = function (v, decimals) {
+  decimals = decimals == null ? 1 : decimals;
   if (v == null || isNaN(v)) return "N/A";
   return (+v).toFixed(decimals);
 };
 
-/** Format a USD value with k suffix */
+/** Format a USD value; values ≥ 1000 are shown with a 'k' suffix. */
 window.fmtK = function (v) {
   if (v == null || isNaN(v) || v === 0) return "N/A";
   v = +v;
   return v >= 1000 ? "$" + (v / 1000).toFixed(1) + "k" : "$" + v.toFixed(0);
 };
 
-/** Tooltip helpers — shared DOM element */
+/* ── Tooltip ──────────────────────────────────────────────────────────── */
+
+/** Shared tooltip DOM element — all pages use the same node. */
 const _tt = document.getElementById("tooltip");
 
 window.showTooltip = function (html, event) {
@@ -121,53 +141,67 @@ window.showTooltip = function (html, event) {
   _tt.innerHTML = html;
   window.moveTooltip(event);
 };
+
+/** Keep tooltip within the right viewport edge. */
 window.moveTooltip = function (event) {
-  const tw = 260;
-  const left =
-    event.pageX + tw + 20 > window.innerWidth
-      ? event.pageX - tw - 10
-      : event.pageX + 16;
+  const tw   = 260;
+  const left = event.pageX + tw + 20 > window.innerWidth
+    ? event.pageX - tw - 10
+    : event.pageX + 16;
   _tt.style.left = left + "px";
   _tt.style.top  = event.pageY - 10 + "px";
 };
+
 window.hideTooltip = function () {
   _tt.classList.remove("visible");
 };
 
-/** Build a region dot legend into a container element by id */
+/* ── Region legend builder ────────────────────────────────────────────── */
+
+/**
+ * Injects a colored dot + label for each region into the element at containerId.
+ * Calls onClickCallback(regionName, itemElement) on click if provided.
+ */
 window.buildRegionLegend = function (containerId, onClickCallback) {
   const el = document.getElementById(containerId);
   if (!el) return;
   el.innerHTML = "";
-  window.REGIONS.forEach((r) => {
+  window.REGIONS.forEach(function (r) {
     const item = document.createElement("div");
     item.className = "legend-item";
     item.dataset.region = r;
-    item.innerHTML = `<div class="legend-dot" style="background:${window.REGION_COLORS[r]}"></div>${window.REGION_SHORT[r] || r}`;
-    if (onClickCallback) item.addEventListener("click", () => onClickCallback(r, item));
+    item.innerHTML =
+      '<div class="legend-dot" style="background:' + window.REGION_COLORS[r] + '"></div>' +
+      (window.REGION_SHORT[r] || r);
+    if (onClickCallback) {
+      item.addEventListener("click", function () { onClickCallback(r, item); });
+    }
     el.appendChild(item);
   });
 };
 
-/** Pearson correlation coefficient for two numeric arrays */
+/* ── Statistical helpers ──────────────────────────────────────────────── */
+
+/** Pearson correlation coefficient for two equal-length numeric arrays. */
 window.pearson = function (xs, ys) {
   const n = xs.length;
   if (!n) return 0;
-  const mx = d3.mean(xs),
-        my = d3.mean(ys);
-  const num = d3.sum(xs.map((x, i) => (x - mx) * (ys[i] - my)));
+  const mx  = d3.mean(xs);
+  const my  = d3.mean(ys);
+  const num = d3.sum(xs.map(function (x, i) { return (x - mx) * (ys[i] - my); }));
   const den = Math.sqrt(
-    d3.sum(xs.map((x) => (x - mx) ** 2)) * d3.sum(ys.map((y) => (y - my) ** 2))
+    d3.sum(xs.map(function (x) { return (x - mx) * (x - mx); })) *
+    d3.sum(ys.map(function (y) { return (y - my) * (y - my); }))
   );
   return den ? num / den : 0;
 };
 
-/** Simple OLS linear regression → [slope, intercept] */
+/** OLS linear regression — returns [slope, intercept]. */
 window.linearRegression = function (xs, ys) {
-  const mx = d3.mean(xs),
-        my = d3.mean(ys);
-  const num = d3.sum(xs.map((x, i) => (x - mx) * (ys[i] - my)));
-  const den = d3.sum(xs.map((x) => (x - mx) ** 2));
+  const mx    = d3.mean(xs);
+  const my    = d3.mean(ys);
+  const num   = d3.sum(xs.map(function (x, i) { return (x - mx) * (ys[i] - my); }));
+  const den   = d3.sum(xs.map(function (x) { return (x - mx) * (x - mx); }));
   const slope = den ? num / den : 0;
   return [slope, my - slope * mx];
 };

@@ -1,309 +1,297 @@
 /**
- * page4_economy.js  —  Member D
- * ─────────────────────────────────────────────────────────
- * Gapminder-style animated bubble chart.
+ * page4_economy.js — Alcohol Consumption Racing Bar Chart
  *
- * Encodings:
- *   X → GDP per Capita (log) OR Schooling (linear)  [toggle]
- *   Y → Life Expectancy
- *   R → Population (sqrt scale)
- *   Color → Region
+ * Animates the top-10 countries by alcohol consumption across
+ * 2000–2015. Bar width = alcohol consumption; inline label = life
+ * expectancy. Bar color indicates development status.
  *
- * Features:
- *   • Year slider + ▶ Play / ⏸ Pause animation
- *   • Smooth D3 transitions (800 ms)
- *   • Linear regression line (dashed)
- *   • Large watermark year
- *   • Country labels for top-10 most populous (optional)
- *   • Tooltip: country, GDP, schooling, life expectancy, pop
- * ─────────────────────────────────────────────────────────
+ * Controls:  Status filter (All / Developed / Developing)  ·  Play / Pause
+ *
+ * Color encoding:
+ *   Blue  (#50b0f0) — Economy_status_Developed === 1
+ *   Amber (#f0a030) — Economy_status_Developing === 1
  */
 
 "use strict";
 
 (function () {
-  /* ── State ─────────────────────────────────────────────── */
+
   let currentYear  = 2000;
-  let xMode        = "gdp";   // "gdp" | "school"
+  let statusFilter = "All";
   let playing      = false;
   let playTimer    = null;
 
-  /* ── Layout ─────────────────────────────────────────────── */
-  const MARGIN = { top: 28, right: 52, bottom: 68, left: 72 };
+  const MARGIN     = { top: 24, right: 200, bottom: 40, left: 160 };
+  const BAR_COUNT  = 10;
+  const BAR_HEIGHT = 36;
+  const BAR_PAD    = 6;
+
   let W, H, iW, iH;
-  let svg, g;
-  let xScale, yScale, rScale;
+  let svg, g, xScale, yScale;
 
-  /* ── Public init ─────────────────────────────────────────── */
-  window.initPage4 = function initPage4() {
-    /* Region legend */
-    window.buildRegionLegend("p4-legend");
+  /* ── Color ────────────────────────────────────────────────────────── */
 
-    /* Controls */
-    d3.select("#p4-year-slider").on("input", function () {
-      currentYear = +this.value;
-      d3.select("#p4-year-display").text(this.value);
-      _updateChart();
-    });
+  /** Resolve bar color from the binary development-status columns. */
+  function _statusColor(d) {
+    if (d.developed  === 1) return "#50b0f0";
+    if (d.developing === 1) return "#f0a030";
+    return "#888";
+  }
 
-    /* Expose toggle + play to HTML onclick */
-    window.p4SetXMode = _setXMode;
-    window.p4TogglePlay = _togglePlay;
+  /* ── Public init ──────────────────────────────────────────────────── */
 
+  window.initPage4 = function () {
+    _buildHTML();
     _initSVG();
-    _updateChart();
+    _updateChart(false);
   };
 
-  /* ── SVG scaffold ────────────────────────────────────────── */
+  /** Called by main.js when navigating away from page 4. */
+  window.p4TogglePlay = function () {
+    if (playing) _pause(); else _play();
+  };
+
+  /* ── HTML ─────────────────────────────────────────────────────────── */
+
+  function _buildHTML() {
+    const page4 = document.getElementById("page-4");
+    if (!page4) return;
+
+    const sub = page4.querySelector(".page-subtitle");
+    if (sub) {
+      sub.textContent =
+        "Top 10 countries by alcohol consumption race through 2000\u20132015. " +
+        "Bars show alcohol use; labels show life expectancy.";
+    }
+
+    const ctrl = page4.querySelector(".controls");
+    if (ctrl) {
+      ctrl.innerHTML =
+        '<span class="ctrl-label">Status</span>' +
+        '<select id="p4-status-filter">' +
+          '<option value="All">All Countries</option>' +
+          '<option value="Developed">Developed</option>' +
+          '<option value="Developing">Developing</option>' +
+        "</select>" +
+        '<div class="ctrl-divider"></div>' +
+        '<button class="btn" id="p4-play-btn"  style="min-width:90px;">&#9654; Play</button>' +
+        '<button class="btn" id="p4-pause-btn" style="min-width:90px;opacity:0.5;" disabled>' +
+          "&#9646;&#9646; Pause</button>" +
+        '<span class="year-display" id="p4-year-display" style="margin-left:12px;">2000</span>';
+
+      /* Changing the filter restarts the animation from 2000 */
+      document.getElementById("p4-status-filter").addEventListener("change", function () {
+        statusFilter = this.value;
+        _pause();
+        currentYear = 2000;
+        document.getElementById("p4-year-display").textContent = "2000";
+        _updateChart(false);
+        _play();
+      });
+
+      document.getElementById("p4-play-btn").addEventListener("click",  function () {
+        if (playing) _pause(); else _play();
+      });
+      document.getElementById("p4-pause-btn").addEventListener("click", _pause);
+    }
+
+    /* Development-status color legend */
+    const leg = document.getElementById("p4-legend");
+    if (leg) {
+      leg.innerHTML =
+        '<div style="display:flex;gap:20px;flex-wrap:wrap;">' +
+          '<span style="display:flex;align-items:center;gap:6px;font-family:DM Sans,sans-serif;' +
+            'font-size:12px;color:var(--text-dim)">' +
+            '<span style="width:12px;height:12px;border-radius:2px;background:#50b0f0;' +
+              'display:inline-block;"></span>Developed</span>' +
+          '<span style="display:flex;align-items:center;gap:6px;font-family:DM Sans,sans-serif;' +
+            'font-size:12px;color:var(--text-dim)">' +
+            '<span style="width:12px;height:12px;border-radius:2px;background:#f0a030;' +
+              'display:inline-block;"></span>Developing</span>' +
+        "</div>";
+    }
+  }
+
+  /* ── Play / Pause ─────────────────────────────────────────────────── */
+
+  function _play() {
+    if (playing) return;
+    if (currentYear >= 2015) {
+      currentYear = 2000;
+      document.getElementById("p4-year-display").textContent = "2000";
+      _updateChart(false);
+    }
+    playing = true;
+    const pb = document.getElementById("p4-play-btn");
+    const ub = document.getElementById("p4-pause-btn");
+    if (pb) { pb.disabled = true;  pb.classList.add("playing"); }
+    if (ub) { ub.disabled = false; ub.style.opacity = "1"; }
+
+    playTimer = d3.interval(function () {
+      if (currentYear >= 2015) { _pause(); return; }
+      currentYear++;
+      document.getElementById("p4-year-display").textContent = currentYear;
+      _updateChart(true);
+    }, 1200);
+  }
+
+  function _pause() {
+    playing = false;
+    if (playTimer) { playTimer.stop(); playTimer = null; }
+    const pb = document.getElementById("p4-play-btn");
+    const ub = document.getElementById("p4-pause-btn");
+    if (pb) { pb.disabled = false; pb.classList.remove("playing"); }
+    if (ub) { ub.disabled = true;  ub.style.opacity = "0.5"; }
+  }
+
+  /* ── SVG scaffold ─────────────────────────────────────────────────── */
+
   function _initSVG() {
     const svgEl = document.getElementById("p4-svg");
-    W  = svgEl.clientWidth  || 980;
-    H  = 520;
+    W  = svgEl.clientWidth || 960;
+    H  = (BAR_HEIGHT + BAR_PAD) * BAR_COUNT + MARGIN.top + MARGIN.bottom + 20;
     iW = W - MARGIN.left - MARGIN.right;
     iH = H - MARGIN.top  - MARGIN.bottom;
 
-    svg = d3.select("#p4-svg").attr("viewBox", `0 0 ${W} ${H}`);
-    g   = svg.append("g").attr("transform", `translate(${MARGIN.left},${MARGIN.top})`);
+    svg = d3.select("#p4-svg")
+      .attr("viewBox", "0 0 " + W + " " + H)
+      .attr("height", H);
 
-    /* Scales */
-    const validGDP = window.allData.filter((d) => d.GDP_per_capita > 0);
-    xScale = d3
-      .scaleLog()
-      .domain([200, d3.max(validGDP, (d) => d.GDP_per_capita) * 1.15])
-      .range([0, iW])
-      .clamp(true);
+    g = svg.append("g").attr("transform", "translate(" + MARGIN.left + "," + MARGIN.top + ")");
 
-    yScale = d3
-      .scaleLinear()
-      .domain([35, d3.max(window.allData, (d) => d.Life_expectancy) + 3])
-      .range([iH, 0])
-      .nice();
-
-    rScale = d3
-      .scaleSqrt()
-      .domain([0, d3.max(window.allData, (d) => d.Population_mln)])
-      .range([4, 44]);
-
-    /* Gridline groups */
+    g.append("g").attr("class", "p4-xaxis").attr("transform", "translate(0," + iH + ")");
     g.append("g").attr("class", "p4-xgrid");
-    g.append("g").attr("class", "p4-ygrid");
-
-    /* Axis groups */
-    g.append("g").attr("class", "axis p4-xaxis")
-      .attr("transform", `translate(0,${iH})`);
-    g.append("g").attr("class", "axis p4-yaxis");
-
-    /* Axis labels */
-    g.append("text").attr("class", "axis-label p4-xlabel")
-      .attr("x", iW / 2).attr("y", iH + 54)
-      .attr("text-anchor", "middle");
-
     g.append("text").attr("class", "axis-label")
-      .attr("transform", "rotate(-90)")
-      .attr("x", -iH / 2).attr("y", -56)
+      .attr("x", iW / 2).attr("y", iH + 34)
       .attr("text-anchor", "middle")
-      .text("Life Expectancy (years)");
+      .attr("font-family", "DM Sans, sans-serif")
+      .attr("font-size", 12).attr("fill", "var(--text-dim)")
+      .text("Alcohol Consumption (litres per capita)");
 
-    /* Regression line */
-    g.append("line").attr("class", "regression-line p4-reg");
-
-    /* Year watermark */
-    svg.append("text").attr("class", "p4-year-bg")
-      .attr("x", MARGIN.left + iW - 12)
-      .attr("y", MARGIN.top  + iH - 12)
-      .attr("text-anchor", "end")
-      .attr("font-family", "Playfair Display, serif")
-      .attr("font-size", 88)
-      .attr("font-weight", 900)
-      .attr("fill", "var(--surface2)")
-      .text("2000");
-
-    /* Bubbles group */
-    g.append("g").attr("class", "p4-bubbles");
+    const maxAlcohol = d3.max(window.allData, function (d) { return d.Alcohol_consumption; }) || 20;
+    xScale = d3.scaleLinear().domain([0, maxAlcohol * 1.1]).range([0, iW]).nice();
+    yScale = d3.scaleBand()
+      .domain(d3.range(BAR_COUNT).map(String))
+      .range([0, iH])
+      .padding(0.15);
   }
 
-  /* ── X-mode toggle ───────────────────────────────────────── */
-  function _setXMode(mode) {
-    xMode = mode;
-    document.getElementById("p4-toggle-gdp")
-      .classList.toggle("active", mode === "gdp");
-    document.getElementById("p4-toggle-school")
-      .classList.toggle("active", mode === "school");
+  /* ── Data ─────────────────────────────────────────────────────────── */
 
-    if (mode === "gdp") {
-      const validGDP = window.allData.filter((d) => d.GDP_per_capita > 0);
-      xScale = d3
-        .scaleLog()
-        .domain([200, d3.max(validGDP, (d) => d.GDP_per_capita) * 1.15])
-        .range([0, iW])
-        .clamp(true);
-    } else {
-      xScale = d3
-        .scaleLinear()
-        .domain([0, d3.max(window.allData, (d) => d.Schooling) + 2])
-        .range([0, iW]);
+  /** Returns the top BAR_COUNT countries for the current year + status filter. */
+  function _getTopData() {
+    let rows = window.allData.filter(function (d) {
+      return d.Year === currentYear && d.Alcohol_consumption > 0;
+    });
+    if (statusFilter !== "All") {
+      const col = statusFilter === "Developed"
+        ? "Economy_status_Developed"
+        : "Economy_status_Developing";
+      rows = rows.filter(function (d) { return d[col] === 1; });
     }
-    _updateChart();
+    rows.sort(function (a, b) { return b.Alcohol_consumption - a.Alcohol_consumption; });
+    return rows.slice(0, BAR_COUNT).map(function (d, i) {
+      return {
+        rank:       i,
+        country:    d.Country,
+        alcohol:    d.Alcohol_consumption,
+        lifeExp:    d.Life_expectancy,
+        developed:  d.Economy_status_Developed,
+        developing: d.Economy_status_Developing,
+      };
+    });
   }
 
-  /* ── Play / Pause ────────────────────────────────────────── */
-  function _togglePlay() {
-    playing = !playing;
-    const btn = document.getElementById("p4-play-btn");
-    if (playing) {
-      btn.textContent = "⏸ Pause";
-      btn.classList.add("playing");
-      playTimer = setInterval(() => {
-        currentYear = currentYear >= 2015 ? 2000 : currentYear + 1;
-        document.getElementById("p4-year-slider").value = currentYear;
-        document.getElementById("p4-year-display").textContent = currentYear;
-        _updateChart();
-      }, 950);
-    } else {
-      btn.textContent = "▶ Play";
-      btn.classList.remove("playing");
-      clearInterval(playTimer);
-    }
-  }
+  /* ── Chart update ─────────────────────────────────────────────────── */
 
-  /* ── Get X value ─────────────────────────────────────────── */
-  function _xVal(d) {
-    return xMode === "gdp" ? d.GDP_per_capita : d.Schooling;
-  }
+  /**
+   * Renders or updates all bars, country labels, alcohol value labels,
+   * and life-expectancy labels. Uses d3 key-by-country so entering
+   * elements animate from the correct initial position.
+   */
+  function _updateChart(animate) {
+    const topData = _getTopData();
+    const dur     = animate ? 1000 : 0;
 
-  /* ── Update / animate chart ──────────────────────────────── */
-  function _updateChart() {
-    const yd = window.allData.filter(
-      (d) => d.Year === currentYear && _xVal(d) > 0 && d.Life_expectancy > 0
-    );
+    const xMax = d3.max(topData, function (d) { return d.alcohol; }) || 20;
+    xScale.domain([0, xMax * 1.15]).nice();
 
-    const DUR = playing ? 850 : 700;
+    g.select(".p4-xaxis").transition().duration(dur)
+      .call(d3.axisBottom(xScale).ticks(6).tickFormat(d3.format(".1f")));
 
-    /* Year watermark */
-    svg.select(".p4-year-bg").text(currentYear);
+    g.select(".p4-xgrid").transition().duration(dur)
+      .call(d3.axisBottom(xScale).ticks(6).tickSize(-iH).tickFormat(""))
+      .call(function (a) { a.selectAll("line").attr("class", "gridline"); a.select(".domain").remove(); });
 
-    /* Axis label */
-    const xLabel =
-      xMode === "gdp"
-        ? "GDP per Capita (USD, log scale)"
-        : "Average Years of Schooling";
-    g.select(".p4-xlabel").text(xLabel);
+    function key(d) { return d.country; }
 
-    /* Axes */
-    const xAxisFn =
-      xMode === "gdp"
-        ? d3.axisBottom(xScale).ticks(7, "$,.0s")
-        : d3.axisBottom(xScale).ticks(8);
+    /* ── Bars ── */
+    const bars = g.selectAll(".p4-bar").data(topData, key);
 
-    g.select(".p4-xaxis").transition().duration(DUR).call(xAxisFn);
-    g.select(".p4-yaxis").transition().duration(DUR)
-      .call(d3.axisLeft(yScale).ticks(7));
+    bars.enter().append("rect").attr("class", "p4-bar")
+      .attr("x", 0).attr("y",      function (d) { return yScale(String(d.rank)); })
+      .attr("height", yScale.bandwidth()).attr("width", 0)
+      .attr("rx", 3).attr("fill", function (d) { return _statusColor(d); })
+      .merge(bars).transition().duration(dur).ease(d3.easeLinear)
+      .attr("y",      function (d) { return yScale(String(d.rank)); })
+      .attr("height", yScale.bandwidth())
+      .attr("width",  function (d) { return xScale(d.alcohol); })
+      .attr("fill",   function (d) { return _statusColor(d); });
 
-    /* Gridlines */
-    g.select(".p4-xgrid").transition().duration(DUR)
-      .call(xAxisFn.tickSize(-iH).tickFormat(""))
-      .call((axis) => {
-        axis.selectAll("line").attr("class", "gridline");
-        axis.select(".domain").remove();
-      });
-    g.select(".p4-ygrid").transition().duration(DUR)
-      .call(d3.axisLeft(yScale).ticks(7).tickSize(-iW).tickFormat(""))
-      .call((axis) => {
-        axis.selectAll("line").attr("class", "gridline");
-        axis.select(".domain").remove();
-      });
+    bars.exit().transition().duration(dur / 2).attr("width", 0).attr("opacity", 0).remove();
 
-    /* Regression line */
-    _drawRegression(yd, DUR);
+    /* ── Country labels (left of bar) ── */
+    const countryLabels = g.selectAll(".p4-country-label").data(topData, key);
 
-    /* ── Enter / Update / Exit ──────────────────────────────── */
-    const bubbles = g
-      .select(".p4-bubbles")
-      .selectAll(".bubble")
-      .data(yd, (d) => d.Country);
-
-    /* Sort so small bubbles render on top */
-    const allBubbles = bubbles
-      .enter()
-      .append("circle")
-      .attr("class", "bubble")
-      .attr("cx", (d) => xScale(_xVal(d)))
-      .attr("cy", (d) => yScale(d.Life_expectancy))
-      .attr("r", 0)
-      .attr("fill", (d) => window.REGION_COLORS[d.Region] || "#888")
-      .attr("opacity", 0.72)
-      .attr("stroke", "rgba(0,0,0,0.15)")
-      .attr("stroke-width", 0.7)
-      .on("mouseover", _onBubbleOver)
-      .on("mousemove",  window.moveTooltip)
-      .on("mouseout",   _onBubbleOut)
-      .merge(bubbles)
-      .sort((a, b) => d3.descending(a.Population_mln, b.Population_mln));
-
-    allBubbles.transition().duration(DUR)
-      .attr("cx", (d) => { const xv = _xVal(d); return xv > 0 ? xScale(xv) : -200; })
-      .attr("cy", (d) => yScale(d.Life_expectancy))
-      .attr("r",  (d) => rScale(d.Population_mln))
-      .attr("fill", (d) => window.REGION_COLORS[d.Region] || "#888");
-
-    bubbles.exit()
-      .transition().duration(300)
-      .attr("r", 0).attr("opacity", 0)
-      .remove();
-  }
-
-  /* ── Regression line ─────────────────────────────────────── */
-  function _drawRegression(yd, dur) {
-    const valid = yd.filter((d) => _xVal(d) > 0);
-    if (valid.length < 3) return;
-
-    const xs =
-      xMode === "gdp"
-        ? valid.map((d) => Math.log10(d.GDP_per_capita))
-        : valid.map((d) => d.Schooling);
-    const ys = valid.map((d) => d.Life_expectancy);
-    const [slope, intercept] = window.linearRegression(xs, ys);
-
-    const dom  = xScale.domain();
-    const x1v  = dom[0], x2v = dom[1];
-    const x1l  = xMode === "gdp" ? Math.log10(x1v) : x1v;
-    const x2l  = xMode === "gdp" ? Math.log10(x2v) : x2v;
-    const y1v  = slope * x1l + intercept;
-    const y2v  = slope * x2l + intercept;
-
-    g.select(".p4-reg")
-      .transition().duration(dur)
-      .attr("x1", xScale(x1v)).attr("y1", yScale(y1v))
-      .attr("x2", xScale(x2v)).attr("y2", yScale(y2v));
-  }
-
-  /* ── Hover handlers ──────────────────────────────────────── */
-  function _onBubbleOver(event, d) {
-    d3.select(this)
-      .raise()
-      .transition().duration(100)
+    countryLabels.enter().append("text").attr("class", "p4-country-label")
+      .attr("x", -8).attr("text-anchor", "end")
+      .attr("font-family", "DM Sans, sans-serif").attr("font-size", 12)
+      .attr("fill", "var(--text-dim)")
+      .attr("y", function (d) { return yScale(String(d.rank)) + yScale.bandwidth() / 2 + 4; })
+      .attr("opacity", 0)
+      .merge(countryLabels).transition().duration(dur).ease(d3.easeLinear)
+      .attr("y",      function (d) { return yScale(String(d.rank)) + yScale.bandwidth() / 2 + 4; })
       .attr("opacity", 1)
-      .attr("stroke", "white")
-      .attr("stroke-width", 1.8);
+      .text(function (d) { return d.country; });
 
-    window.showTooltip(
-      `<div class="tt-country">${d.Country}</div>
-       <div class="tt-region">${window.REGION_SHORT[d.Region] || d.Region} · ${currentYear}</div>
-       <hr class="tt-divider">
-       <div class="tt-row"><span class="tt-label">Life Expectancy</span><span class="tt-value">${window.fmt(d.Life_expectancy)} yrs</span></div>
-       <div class="tt-row"><span class="tt-label">GDP per Capita</span><span class="tt-value">${window.fmtK(d.GDP_per_capita)}</span></div>
-       <div class="tt-row"><span class="tt-label">Schooling</span><span class="tt-value">${window.fmt(d.Schooling)} yrs</span></div>
-       <div class="tt-row"><span class="tt-label">Population</span><span class="tt-value">${window.fmt(d.Population_mln, 2)}M</span></div>`,
-      event
-    );
+    countryLabels.exit().transition().duration(dur / 2).attr("opacity", 0).remove();
+
+    /* ── Alcohol value labels (right of bar) ── */
+    const alcLabels = g.selectAll(".p4-alc-label").data(topData, key);
+
+    alcLabels.enter().append("text").attr("class", "p4-alc-label")
+      .attr("text-anchor", "start")
+      .attr("font-family", "JetBrains Mono, monospace").attr("font-size", 10)
+      .attr("fill", "rgba(255,255,255,0.65)")
+      .attr("y", function (d) { return yScale(String(d.rank)) + yScale.bandwidth() / 2 + 4; })
+      .attr("x", function (d) { return xScale(d.alcohol) + 6; })
+      .attr("opacity", 0)
+      .merge(alcLabels).transition().duration(dur).ease(d3.easeLinear)
+      .attr("y", function (d) { return yScale(String(d.rank)) + yScale.bandwidth() / 2 + 4; })
+      .attr("x", function (d) { return xScale(d.alcohol) + 6; })
+      .attr("opacity", 1)
+      .text(function (d) { return d3.format(".1f")(d.alcohol) + "L"; });
+
+    alcLabels.exit().transition().duration(dur / 2).attr("opacity", 0).remove();
+
+    /* ── Life expectancy labels (inside bar, right-aligned) ── */
+    const leLabels = g.selectAll(".p4-le-label").data(topData, key);
+
+    leLabels.enter().append("text").attr("class", "p4-le-label")
+      .attr("text-anchor", "end")
+      .attr("font-family", "DM Sans, sans-serif").attr("font-size", 11).attr("font-weight", "600")
+      .attr("fill", "rgba(0,0,0,0.7)").attr("pointer-events", "none")
+      .attr("y", function (d) { return yScale(String(d.rank)) + yScale.bandwidth() / 2 + 4; })
+      .attr("x", function (d) { return Math.max(xScale(d.alcohol) - 8, 50); })
+      .attr("opacity", 0)
+      .merge(leLabels).transition().duration(dur).ease(d3.easeLinear)
+      .attr("y", function (d) { return yScale(String(d.rank)) + yScale.bandwidth() / 2 + 4; })
+      .attr("x", function (d) { return Math.max(xScale(d.alcohol) - 8, 50); })
+      /* Only show when the bar is wide enough to hold the label */
+      .attr("opacity", function (d) { return xScale(d.alcohol) > 60 ? 1 : 0; })
+      .text(function (d) { return d3.format(".1f")(d.lifeExp) + " yrs"; });
+
+    leLabels.exit().transition().duration(dur / 2).attr("opacity", 0).remove();
   }
 
-  function _onBubbleOut(event) {
-    d3.select(this)
-      .transition().duration(150)
-      .attr("opacity", 0.72)
-      .attr("stroke", "rgba(0,0,0,0.15)")
-      .attr("stroke-width", 0.7);
-    window.hideTooltip();
-  }
-})();
+}());
