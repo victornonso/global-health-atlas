@@ -442,8 +442,18 @@ svg text { fill: var(--text); font-family: 'DM Sans', sans-serif; }
   max-width: 255px;
   display: none;
   backdrop-filter: blur(10px);
+  /* Centre-of-screen positioning — JS sets left/top to exact centre */
+  transform: none;
+  transition: opacity 0.12s ease;
 }
-#tooltip.visible { display: block; }
+#tooltip.visible {
+  display: block;
+  animation: tt-fade-in 0.12s ease;
+}
+@keyframes tt-fade-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
 .tt-country {
   font-family: 'Playfair Display', serif;
   font-size: 14px;
@@ -618,4 +628,163 @@ svg text { fill: var(--text); font-family: 'DM Sans', sans-serif; }
   font-size: 13px;
   color: #f08080;
   margin-bottom: 16px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE BREAKPOINTS
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Tablet  (≤ 1024px) ─────────────────────────────────── */
+@media (max-width: 1024px) {
+  #nav {
+    padding: 0 20px;
+    gap: 12px;
+  }
+
+  .nav-brand span { display: none; }
+
+  .nav-btn {
+    font-size: 9px;
+    padding: 5px 10px;
+  }
+
+  .page {
+    padding: 80px 24px 40px;
+  }
+
+  .stat-card {
+    min-width: 110px;
+    padding: 12px 14px;
+  }
+
+  .stat-card-value { font-size: 22px; }
+
+  /* SVG charts — allow shorter height on smaller screens */
+  #p1-map-svg  { height: 420px !important; }
+  #p3-svg      { height: 420px !important; }
+  #p4-svg      { height: auto  !important; }
+}
+
+/* ── Large mobile  (≤ 768px) ────────────────────────────── */
+@media (max-width: 768px) {
+  /* Nav — stack brand above pages on very narrow screens */
+  #nav {
+    height: auto;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+    gap: 8px;
+  }
+
+  .nav-brand {
+    font-size: 14px;
+    width: 100%;
+  }
+
+  .nav-pages {
+    gap: 2px;
+    flex-wrap: wrap;
+  }
+
+  .nav-btn {
+    font-size: 8px;
+    padding: 4px 8px;
+    letter-spacing: 0.03em;
+  }
+
+  /* Push page content below the taller nav */
+  .page { padding-top: 100px; }
+
+  .page-title { font-size: clamp(20px, 5vw, 28px); }
+
+  .page-subtitle { font-size: 13px; }
+
+  /* Stat cards — two per row */
+  .stat-cards { gap: 8px; }
+  .stat-card  { min-width: calc(50% - 4px); flex: none; }
+  .stat-card-value { font-size: 20px; }
+
+  /* Controls — wrap tightly */
+  .controls {
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .ctrl-divider { display: none; }
+
+  input[type=range] { width: 120px; }
+
+  /* Charts */
+  #p1-map-svg { height: 300px !important; }
+  #p3-svg     { height: 360px !important; }
+
+  /* Heatmap — allow horizontal scroll on small screens */
+  .chart-container { overflow-x: auto; }
+
+  /* Legend — denser wrap */
+  .legend { gap: 6px 12px; padding: 8px 10px; }
+  .legend-item { font-size: 10px; }
+
+  /* Footer */
+  .page-footer { font-size: 8px; flex-direction: column; align-items: flex-start; gap: 4px; }
+
+  /* Colorbar */
+  .colorbar-wrap { padding: 0 8px; }
+}
+
+/* ── Small mobile  (≤ 480px) ────────────────────────────── */
+@media (max-width: 480px) {
+  .nav-btn { font-size: 7px; padding: 4px 6px; }
+
+  .page { padding: 110px 12px 32px; }
+
+  /* Stat cards — full width stack */
+  .stat-card { min-width: 100%; }
+
+  .page-title  { font-size: 20px; }
+  .page-subtitle { font-size: 12px; }
+
+  .controls { gap: 8px; padding: 8px 10px; }
+
+  input[type=range] { width: 100px; }
+
+  .year-display { font-size: 16px; }
+
+  select { font-size: 11px; }
+
+  #p1-map-svg { height: 240px !important; }
+  #p3-svg     { height: 300px !important; }
+
+  /* Tooltip — full width on tiny screens */
+  #tooltip {
+    min-width: calc(100vw - 32px);
+    max-width: calc(100vw - 32px);
+    font-size: 11px;
+  }
+
+  .tt-country { font-size: 13px; }
+
+  /* Insights box */
+  .insights-box { padding: 14px 14px; }
+  .insights-box h3 { font-size: 14px; }
+  .insights-box p  { font-size: 12px; }
+}
+
+/* ── Ensure charts never overflow viewport width ────────── */
+svg {
+  max-width: 100%;
+}
+
+/* ── Map zoom & pan ─────────────────────────────────────── */
+#p1-map-svg {
+  cursor: grab;
+}
+#p1-map-svg:active {
+  cursor: grabbing;
+}
+
+/* Zoom control buttons inherit theme colours via inline styles;
+   this rule just removes the default focus outline on them. */
+#p1-zoom-controls button:focus {
+  outline: none;
 }

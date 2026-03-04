@@ -142,14 +142,20 @@ window.showTooltip = function (html, event) {
   window.moveTooltip(event);
 };
 
-/** Keep tooltip within the right viewport edge. */
+/**
+ * Position the tooltip at the centre of the viewport so it is always
+ * fully visible regardless of where the data point sits on screen.
+ * The event parameter is kept for API compatibility but not used for
+ * positioning — all pages call moveTooltip on mousemove so ignoring
+ * it here is safe.
+ */
 window.moveTooltip = function (event) {
-  const tw   = 260;
-  const left = event.pageX + tw + 20 > window.innerWidth
-    ? event.pageX - tw - 10
-    : event.pageX + 16;
-  _tt.style.left = left + "px";
-  _tt.style.top  = event.pageY - 10 + "px";
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const tw = _tt.offsetWidth  || 230;
+  const th = _tt.offsetHeight || 160;
+  _tt.style.left = Math.round((vw - tw) / 2) + "px";
+  _tt.style.top  = Math.round((vh - th) / 2) + "px";
 };
 
 window.hideTooltip = function () {

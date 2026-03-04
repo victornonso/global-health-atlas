@@ -4,6 +4,17 @@
  * Renders a world choropleth of life expectancy for a selected year,
  * with optional region-filter zoom and a continuous blue color scale.
  *
+ * ZOOM & PAN
+ * ──────────
+ * d3.zoom is attached to the SVG element. On every zoom/pan event the
+ * current d3.ZoomTransform is stored in `currentTransform` and applied
+ * to mapG. Region-filter panning from _panToRegion() uses
+ * zoom.transform() so the zoom state stays in sync and the user can
+ * continue to pan/zoom freely after a region is selected.
+ *
+ * Zoom controls (+ / − / reset) are injected as an SVG foreign-object
+ * overlay so they sit inside the map container without extra HTML.
+ *
  * COUNTRY NAME RESOLUTION
  * ───────────────────────
  * world-atlas 110m topology features carry only a numeric ISO id —
@@ -68,6 +79,17 @@
   let W = 960, H = 500;
   let geoFeatures, baseScale, baseTranslate;
 
+  /**
+   * d3.zoom instance attached to the SVG.
+   * currentTransform mirrors the live ZoomTransform so _currentK() and
+   * stroke-width compensation work without reading the DOM.
+   */
+  let zoom;
+  let currentTransform = d3.zoomIdentity;
+
+  const ZOOM_MIN = 0.5;
+  const ZOOM_MAX = 12;
+
   /* Populated once in _buildLookups(); used for every render/hover. */
   const isoToRegion = new Map();  // isoId → region string
   const yearDataMap = new Map();  // year  → Map<isoId, row>
@@ -102,14 +124,12 @@
     isoToRegion.clear();
     yearDataMap.clear();
 
-    /* norm(topoName) → isoId — ground truth from the topology itself */
     const nameToIso = new Map();
     topoNames.forEach(function (f) {
       if (f.name) nameToIso.set(_norm(f.name), String(f.id));
     });
 
     window.allData.forEach(function (row) {
-      /* Pass 1: direct normalised match; Pass 2: alias fallback */
       const isoId = nameToIso.get(_norm(row.Country))
                  || nameToIso.get(_norm(CSV_TO_TOPO[row.Country]));
       if (!isoId) return;
@@ -131,7 +151,6 @@
     _buildGradientLegend();
     _updateStats();
 
-    /* Fetch lightweight geometry (110m) and name-bearing file (50m) in parallel. */
     Promise.all([
       d3.json("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json"),
       d3.json("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json"),
@@ -179,7 +198,6 @@
 
   /* ── Gradient legend ──────────────────────────────────────────────── */
 
-  /** Builds an SVG linearGradient colorbar scaled to the actual data domain. */
   function _buildGradientLegend() {
     const wrap = document.querySelector(".colorbar-wrap");
     if (!wrap) return;
@@ -224,7 +242,7 @@
       .text("Life Expectancy (years)");
   }
 
-  /* ── Map draw (once after TopoJSON loads) ─────────────────────────── */
+  /* ── Map draw ─────────────────────────────────────────────────────── */
 
   function _drawMap(world) {
     const svgEl = document.getElementById("p1-map-svg");
@@ -262,6 +280,120 @@
     mapG.append("path").datum(borders)
       .attr("class", "borders-path").attr("fill", "none")
       .attr("stroke", "#0d0d1a").attr("stroke-width", 0.3).attr("d", mapPath);
+
+    _initZoom();
+    _buildZoomControls();
+  }
+
+  /* ── d3.zoom setup ────────────────────────────────────────────────── */
+
+  /**
+   * Attaches d3.zoom to the SVG. On every zoom/pan event:
+   *   1. Store the new transform in currentTransform.
+   *   2. Apply it to mapG via a CSS transform.
+   *   3. Compensate stroke widths so borders stay visually thin at high zoom.
+   */
+  function _initZoom() {
+    zoom = d3.zoom()
+      .scaleExtent([ZOOM_MIN, ZOOM_MAX])
+      .translateExtent([[-W * 0.5, -H * 0.5], [W * 1.5, H * 1.5]])
+      .on("zoom", function (event) {
+        currentTransform = event.transform;
+        mapG.attr("transform", currentTransform);
+
+        /* Keep borders visually consistent across zoom levels */
+        const k = currentTransform.k;
+        mapG.selectAll(".country-path").attr("stroke-width", 0.4 / k);
+        mapG.select(".borders-path").attr("stroke-width", 0.3 / k);
+
+        /* Update the zoom-level readout badge */
+        _updateZoomBadge(k);
+      });
+
+    mapSvg.call(zoom);
+
+    /* Prevent the default browser scroll-to-zoom on wheel so the page
+       can still be scrolled normally; user must pinch or use buttons. */
+    mapSvg.on("wheel.zoom", function (event) {
+      event.preventDefault();
+      const delta = -event.deltaY * (event.deltaMode === 1 ? 0.05 : 0.002);
+      const scale = currentTransform.k * Math.pow(2, delta);
+      mapSvg.call(
+        zoom.scaleTo,
+        Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, scale))
+      );
+    }, { passive: false });
+  }
+
+  /* ── Zoom control buttons ─────────────────────────────────────────── */
+
+  /**
+   * Injects three small buttons (+ / reset / −) as an absolutely-positioned
+   * div overlay on the map container. Keeps zoom UI inside the chart box
+   * without touching index.html.
+   */
+  function _buildZoomControls() {
+    const wrap = document.getElementById("p1-map-wrap");
+    if (!wrap || document.getElementById("p1-zoom-controls")) return;
+
+    const panel = document.createElement("div");
+    panel.id = "p1-zoom-controls";
+    panel.style.cssText =
+      "position:absolute;top:12px;right:12px;display:flex;flex-direction:column;" +
+      "gap:4px;z-index:10;";
+
+    function makeBtn(label, title, onClick) {
+      const btn = document.createElement("button");
+      btn.textContent = label;
+      btn.title       = title;
+      btn.style.cssText =
+        "width:30px;height:30px;border-radius:4px;border:1px solid rgba(255,255,255,0.15);" +
+        "background:rgba(15,15,26,0.88);color:#e2e2ee;font-size:16px;line-height:1;" +
+        "cursor:pointer;display:flex;align-items:center;justify-content:center;" +
+        "transition:background 0.15s,border-color 0.15s;backdrop-filter:blur(6px);";
+      btn.addEventListener("mouseenter", function () {
+        btn.style.background    = "rgba(240,192,64,0.18)";
+        btn.style.borderColor   = "rgba(240,192,64,0.6)";
+      });
+      btn.addEventListener("mouseleave", function () {
+        btn.style.background    = "rgba(15,15,26,0.88)";
+        btn.style.borderColor   = "rgba(255,255,255,0.15)";
+      });
+      btn.addEventListener("click", onClick);
+      return btn;
+    }
+
+    panel.appendChild(makeBtn("+", "Zoom in",  function () { _zoomBy(1.5); }));
+    panel.appendChild(makeBtn("⊙", "Reset zoom", _zoomReset));
+    panel.appendChild(makeBtn("−", "Zoom out", function () { _zoomBy(1 / 1.5); }));
+
+    /* Zoom level badge */
+    const badge = document.createElement("div");
+    badge.id = "p1-zoom-badge";
+    badge.style.cssText =
+      "margin-top:4px;text-align:center;font-family:'JetBrains Mono',monospace;" +
+      "font-size:9px;color:rgba(136,136,170,0.8);letter-spacing:0.05em;";
+    badge.textContent = "1×";
+    panel.appendChild(badge);
+
+    /* The map container needs relative positioning for the overlay */
+    wrap.style.position = "relative";
+    wrap.appendChild(panel);
+  }
+
+  function _zoomBy(factor) {
+    mapSvg.transition().duration(320).ease(d3.easeCubicOut)
+      .call(zoom.scaleBy, factor);
+  }
+
+  function _zoomReset() {
+    mapSvg.transition().duration(520).ease(d3.easeCubicInOut)
+      .call(zoom.transform, d3.zoomIdentity);
+  }
+
+  function _updateZoomBadge(k) {
+    const badge = document.getElementById("p1-zoom-badge");
+    if (badge) badge.textContent = k.toFixed(1) + "\u00D7";
   }
 
   /* ── Per-feature accessors ────────────────────────────────────────── */
@@ -271,7 +403,6 @@
     return isoToRegion.get(String(d.id)) === currentRegion;
   }
 
-  /** Two O(1) Map lookups — no string work at render time. */
   function _fill(d) {
     if (!_inRegion(d)) return "transparent";
     const yearMap = yearDataMap.get(currentYear);
@@ -294,17 +425,17 @@
   /* ── Pan + zoom to region ─────────────────────────────────────────── */
 
   /**
-   * Fits the projection to the bounding box of the filtered features and
-   * applies a CSS transform to mapG so the rest of the DOM is unaffected.
+   * Computes the translate + scale needed to fit the selected region,
+   * then applies it via zoom.transform() so the d3.zoom state stays in
+   * sync and the user can continue to interact freely afterwards.
    */
   function _panToRegion() {
-    if (!mapG) return;
+    if (!mapG || !zoom) return;
     _applyColors();
 
     if (currentRegion === "All") {
-      mapG.transition().duration(900).ease(d3.easeCubicInOut).attr("transform", null);
-      mapG.selectAll(".country-path").transition().duration(900).attr("stroke-width", 0.4);
-      mapG.select(".borders-path").transition().duration(900).attr("stroke-width", 0.3);
+      mapSvg.transition().duration(900).ease(d3.easeCubicInOut)
+        .call(zoom.transform, d3.zoomIdentity);
       return;
     }
 
@@ -320,11 +451,8 @@
     const tx = fitProj.translate()[0] - k * baseTranslate[0];
     const ty = fitProj.translate()[1] - k * baseTranslate[1];
 
-    mapG.transition().duration(900).ease(d3.easeCubicInOut)
-      .attr("transform", "translate(" + tx + "," + ty + ") scale(" + k + ")");
-    /* Compensate stroke-width so borders stay visually consistent at all zoom levels */
-    mapG.selectAll(".country-path").transition().duration(900).attr("stroke-width", 0.4 / k);
-    mapG.select(".borders-path").transition().duration(900).attr("stroke-width", 0.3 / k);
+    mapSvg.transition().duration(900).ease(d3.easeCubicInOut)
+      .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(k));
   }
 
   /* ── Tooltip ──────────────────────────────────────────────────────── */
@@ -350,21 +478,14 @@
       event
     );
 
-    const k = _currentK();
+    const k = currentTransform.k;
     d3.select(this).raise().attr("stroke", "rgba(255,255,255,0.8)").attr("stroke-width", 1.5 / k);
   }
 
   function _onOut() {
     window.hideTooltip();
-    const k = _currentK();
+    const k = currentTransform.k;
     d3.select(this).attr("stroke", _stroke).attr("stroke-width", 0.4 / k);
-  }
-
-  /** Reads the current scale factor from the mapG transform attribute. */
-  function _currentK() {
-    if (!mapG) return 1;
-    const m = (mapG.attr("transform") || "").match(/scale\(([\d.eE+\-]+)\)/);
-    return m ? +m[1] : 1;
   }
 
   /* ── Stat cards ───────────────────────────────────────────────────── */
