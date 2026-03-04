@@ -143,20 +143,30 @@ window.showTooltip = function (html, event) {
 };
 
 /**
- * Position the tooltip at the centre of the viewport so it is always
- * fully visible regardless of where the data point sits on screen.
- * The event parameter is kept for API compatibility but not used for
- * positioning — all pages call moveTooltip on mousemove so ignoring
- * it here is safe.
+ * Follow the cursor but clamp every edge so the tooltip never bleeds
+ * outside the visible viewport.
+ *
+ * Horizontal: prefer right of cursor, flip left  if it would clip the right edge.
+ * Vertical:   prefer below cursor,   flip above  if it would clip the bottom edge.
  */
 window.moveTooltip = function (event) {
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const tw = _tt.offsetWidth  || 230;
-  const th = _tt.offsetHeight || 160;
-  _tt.style.left = Math.round((vw - tw) / 2) + "px";
-  _tt.style.top  = Math.round((vh - th) / 2) + "px";
+  var PAD = 12;
+  var vw  = window.innerWidth;
+  var vh  = window.innerHeight;
+  var tw  = _tt.offsetWidth  || 230;
+  var th  = _tt.offsetHeight || 160;
+  var cx  = event.clientX;
+  var cy  = event.clientY;
+  var left = cx + PAD;
+  if (left + tw > vw - PAD) left = cx - tw - PAD;
+  if (left < PAD) left = PAD;
+  var top = cy + PAD;
+  if (top + th > vh - PAD) top = cy - th - PAD;
+  if (top < PAD) top = PAD;
+  _tt.style.left = left + "px";
+  _tt.style.top  = top  + "px";
 };
+
 
 window.hideTooltip = function () {
   _tt.classList.remove("visible");
